@@ -1,14 +1,25 @@
-import aiohttp
-from aiohttp import web
+from flask import Flask, request, jsonify, send_file
 import yt_dlp
+import os
 
-async def download_song(request):
-    data = await request.json()
-    url = data.get('url')
-    
-    if not url:
-        return web.json_response({'error': 'URL is required'}, status=400)
-    
+app = Flask(__name__)
+
+@app.route('/')
+def index():
+    return '''
+        <h1>Download YouTube Songs</h1>
+        <form action="/download" method="post">
+            <label for="url">YouTube URL:</label>
+            <input type="text" id="url" name="url">
+            <input type="submit" value="Download">
+        </form>
+    '''
+
+@app.route('/download', methods=['POST'])
+def download():
+    url = request.form['url']
+    cookies = request.cookies.get('yt_cookies')
+
     ydl_opts = {
         'format': 'bestaudio/best',
         'postprocessors': [{
@@ -16,18 +27,18 @@ async def download_song(request):
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
-        'outtmpl': '%(title)s.%(ext)s'
+        'outtmpl': 'downloads/%(title)s.%(ext)s',
+        'cookiefile': cookies  # Use cookies from the visitor
     }
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        return web.json_response({'status': 'Download successful'})
-    except Exception as e:
-        return web.json_response({'error': str(e)}, status=500)
 
-app = web.Application()
-app.router.add_post('/download', download_song)
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        info_dict = ydl.extract_info(url, download=True)
+        file_path = ydl.prepare_filename(info_dict).replace('.webm', '.mp3')
+
+    return send_file(file_path, as_attachment=True)
 
 if __name__ == '__main__':
-    web.run_app(app, port=8080)
+    if not os.path.exists('downloads'):
+        os.makedirs('downloads')
+    app.run(host='0.0.0.0', port=5000, debug=True)
+
